@@ -15,7 +15,7 @@ This project demonstrates the creation of a basic web server using Python that h
 7. **Managing the server lifecycle with context managers**
 8. **Ensuring a single instance of the server using the singleton pattern**
 
-## Key Implementations and Smart Features
+## Key Implementations
 
 This web server is designed to handle HTTP requests efficiently and securely while demonstrating advanced Python programming techniques:
 
