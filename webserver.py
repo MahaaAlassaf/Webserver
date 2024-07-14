@@ -1,13 +1,11 @@
+import threading
 import time
 from functools import wraps
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from abc import ABC, abstractmethod
 import json
-import urllib.parse
 import asyncio
-
-# Task list to store tasks
-tasklist = []
+import urllib.parse
 
 # Implementing Decorators
 def log_request(func):
@@ -25,17 +23,17 @@ def authorize_request(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         print("Authorizing request...")
-        authorized = True  # Simulate authorization check
+        authorized = True  
         if authorized:
             print("Request authorized")
             return func(self, *args, **kwargs)
         else:
             self.send_response(403)
-            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(b"<html><body><h1>403 Forbidden</h1><p>You are not authorized to access this page.</p></body></html>")
+            self.wfile.write(json.dumps({"error": "403 Forbidden", "message": "You are not authorized to access this page."}).encode())
             print("Unauthorized request")
-            return
+            return 
     return wrapper
 
 # Implementing BaseRequestHandler and Derived Classes
@@ -46,97 +44,19 @@ class BaseRequestHandler(ABC):
 
 class GetRequestHandler(BaseRequestHandler):
     def handle_request(self, handler):
-        if handler.path.endswith('/tasklist'):
-            handler.send_response(200)
-            handler.send_header('Content-type', 'text/html')
-            handler.end_headers()
-            output = '''
-            <html>
-                <body>
-                    <h1>Task List</h1>
-                    <h3><a href="/tasklist/new">Add New Task</a></h3>
-            '''
-            for task in tasklist:
-                output += f'{task} <a href="/tasklist/{task}/remove">X</a><br>'
-            output += '</body></html>'
-            handler.wfile.write(output.encode())
-        elif handler.path.endswith('/tasklist/new'):
-            handler.send_response(200)
-            handler.send_header('Content-type', 'text/html')
-            handler.end_headers()
-            output = '''
-            <html>
-                <body>
-                    <h1>Add New Task</h1>
-                    <form method="POST" action="/tasklist/new">
-                        <input name="task" type="text" placeholder="Add new task">
-                        <input type="submit" value="Add">
-                    </form>
-                </body>
-            </html>
-            '''
-            handler.wfile.write(output.encode())
-        else:
-            client_info = {
-                "client_address": handler.client_address,
-                "user_agent": handler.headers.get("User-Agent"),
-                "accept_language": handler.headers.get("Accept-Language"),
-                "content_type": handler.headers.get("Content-Type")
-            }
-            print(f"Handling GET request with client info: {client_info}")
-
-            response_data = {
-                "status": "success",
-                "method": "GET",
-                "path": handler.path,
-                "message": "GET request response",
-                "client_info": client_info
-            }
-
-            response_json = json.dumps(response_data, indent=4)
-            handler.send_response(200)
-            handler.send_header('Content-Type', 'application/json')
-            handler.end_headers()
-
-            try:
-                for part in streaming_response_generator(response_json):
-                    handler.wfile.write(part.encode())
-            except (ConnectionResetError, BrokenPipeError):
-                print("Connection lost while sending response")
-
-class PostRequestHandler(BaseRequestHandler):
-    def handle_request(self, handler):
-        if handler.path.endswith('/tasklist/new'):
-            content_length = int(handler.headers['Content-Length'])
-            post_data = handler.rfile.read(content_length).decode('utf-8')
-            post_data = urllib.parse.parse_qs(post_data)
-            new_task = post_data.get('task', [''])[0]
-            if new_task:
-                tasklist.append(new_task)
-            handler.send_response(301)
-            handler.send_header('Content-type', 'text/html')
-            handler.send_header('Location', '/tasklist')
-            handler.end_headers()
-            print(f"Current task list: {tasklist}")
-            return
-
         client_info = {
-            "client_address": handler.client_address,
+            "client_ip": handler.client_address[0],
+            "client_port": handler.client_address[1],
             "user_agent": handler.headers.get("User-Agent"),
-            "accept_language": handler.headers.get("Accept-Language"),
             "content_type": handler.headers.get("Content-Type")
         }
-        print(f"Handling POST request with client info: {client_info}")
-
-        content_length = int(handler.headers['Content-Length'])
-        post_data = handler.rfile.read(content_length)
-        print(f"Received data: {post_data}")
+        print(f"Handling GET request with client info: {client_info}")
 
         response_data = {
             "status": "success",
-            "method": "POST",
+            "method": "GET",
             "path": handler.path,
-            "message": f"POST request data: {post_data.decode('utf-8')}",
+            "message": "GET request response",
             "client_info": client_info
         }
 
@@ -146,28 +66,82 @@ class PostRequestHandler(BaseRequestHandler):
         handler.end_headers()
 
         try:
+            start_time = time.time()
             for part in streaming_response_generator(response_json):
                 handler.wfile.write(part.encode())
+            end_time = time.time()
+            print(f"Streaming response time: {end_time - start_time:.4f} seconds")
         except (ConnectionResetError, BrokenPipeError):
             print("Connection lost while sending response")
+
+class PostRequestHandler(BaseRequestHandler):
+    def handle_request(self, handler):
+        client_info = {
+            "client_ip": handler.client_address[0],
+            "client_port": handler.client_address[1],
+            "user_agent": handler.headers.get("User-Agent"),
+            "content_type": handler.headers.get("Content-Type")
+        }
+        print(f"Handling POST request with client info: {client_info}")
+
+        content_length = int(handler.headers['Content-Length'])
+        post_data = handler.rfile.read(content_length)
+        post_data = urllib.parse.parse_qs(post_data.decode('utf-8'))
+        new_task = post_data.get('task', [''])[0]
+        
+        print(f"Received data: {post_data}")
+
+        response_data = {
+            "status": "success",
+            "method": "POST",
+            "path": handler.path,
+            "message": f"POST request data: {post_data}",
+            "client_info": client_info
+        }
+
+        response_json = json.dumps(response_data, indent=4)
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+
+        try:
+            start_time = time.time()
+            for part in streaming_response_generator(response_json):
+                handler.wfile.write(part.encode())
+            end_time = time.time()
+            print(f"Streaming response time: {end_time - start_time:.4f} seconds")
+        except (ConnectionResetError, BrokenPipeError):
+            print("Connection lost while sending response")
+
+class ShutdownRequestHandler(BaseRequestHandler):
+    def handle_request(self, handler):
+        print("Handling server shutdown request")
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"message": "Server is shutting down..."}).encode())
+        threading.Thread(target=handler.server.shutdown).start()
 
 # Implementing Request Handler Class
 class RequestHandler(BaseHTTPRequestHandler):
     @log_request
     @authorize_request
     def do_GET(self):
-        print("Function handle_get called")
+        print("Function do_GET called")
         handler = GetRequestHandler()
         handler.handle_request(self)
-        print("Function handle_get executed")
+        print("Function do_GET executed")
 
     @log_request
     @authorize_request
     def do_POST(self):
-        print("Function handle_post called")
-        handler = PostRequestHandler()
+        if self.path == '/shutdown':
+            handler = ShutdownRequestHandler()
+        else:
+            handler = PostRequestHandler()
+        print("Function do_POST called")
         handler.handle_request(self)
-        print("Function handle_post executed")
+        print("Function do_POST executed")
 
 # Implementing Generators
 def streaming_response_generator(message):
@@ -185,24 +159,52 @@ class RequestIterator:
     def __init__(self, requests):
         self._requests = requests
         self._index = 0
+        print("Initialized RequestIterator with requests:", requests)
 
     def __iter__(self):
         return self
 
     def __next__(self):
         if self._index < len(self._requests):
-            request = self._requests[self._index]
+            result = self._requests[self._index]
+            print(f"RequestIterator returning request at index {self._index}: {result}")
             self._index += 1
-            return request
+            return result
         else:
+            print("RequestIterator reached end of requests")
             raise StopIteration
 
-# Implementing AsyncRequestHandler
-async def async_request_handler(requests):
-    iterator = RequestIterator(requests)
-    for request in iterator:
+    def __len__(self):
+        return len(self._requests)
+
+# Implementing Async Iterator
+class AsyncRequestIterator:
+    def __init__(self, request_iterator):
+        self._request_iterator = request_iterator
+        self._requests = list(request_iterator)
+        self._index = 0
+        print("Initialized AsyncRequestIterator with requests:", self._requests)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._index < len(self._requests):
+            result = self._requests[self._index]
+            print(f"AsyncRequestIterator returning request at index {self._index}: {result}")
+            self._index += 1
+            await asyncio.sleep(0)  # Simulate async processing time
+            return result
+        else:
+            print("AsyncRequestIterator reached end of requests")
+            raise StopAsyncIteration
+
+async def async_request_handler(request_iterator):
+    print("async_request_handler called")
+    async for request in AsyncRequestIterator(request_iterator):
         print(f"Processing request asynchronously: {request}")
-        await asyncio.sleep(0)  # Simulate async processing
+        await asyncio.sleep(1)
+    print("async_request_handler executed")
 
 # Implementing Singleton Pattern
 class SingletonMeta(type):
@@ -235,7 +237,6 @@ class ServerContextManager:
         print("Shutting down server")
         self.server_instance.server.shutdown()
         self.server_instance.server.server_close()
-        print(f"Current task list before shutting down: {tasklist}")
 
 # Running the Web Server
 def run():
@@ -245,15 +246,7 @@ def run():
 
     with ServerContextManager(server_address, handler_class) as httpd:
         print("*************** Welcome to Maha's Server ***************")
-        print(f"---------\nServer running at http://{server_address[0]}:{server_address[1]}\n---------")
-
-        # Simulate some async request handling
-        requests = [
-            "GET / HTTP/1.1",
-            "POST /tasklist/new HTTP/1.1",
-            "GET /tasklist HTTP/1.1"
-        ]
-        asyncio.run(async_request_handler(requests))
+        print(f"---------\nServer running at http://{server_address[0]}:{server_address[1]}\n")
 
         try:
             httpd.serve_forever()
