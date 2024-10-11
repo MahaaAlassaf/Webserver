@@ -1,5 +1,4 @@
 # Web Server with Advanced Python Features
-
 ## Overview
 
 This project demonstrates the creation of a basic web server using Python that handles HTTP requests and generates appropriate responses, including streaming responses using generators. It showcases various advanced Python features such as decorators, generators, iterators, coroutines & async iterators, inheritance, polymorphism, context managers, and the singleton pattern.
